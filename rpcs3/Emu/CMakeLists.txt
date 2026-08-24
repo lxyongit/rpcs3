@@ -61,6 +61,15 @@ target_include_directories(rpcs3_emu
         ${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty
 )
 
+# Prefer the bundled Protobuf headers over headers exposed by optional system
+# dependencies. The checked-in NP gencode must be compiled against this exact
+# Protobuf version.
+if(NOT USE_SYSTEM_PROTOBUF)
+    target_include_directories(rpcs3_emu BEFORE PRIVATE
+        ${CMAKE_SOURCE_DIR}/3rdparty/protobuf/protobuf/src
+    )
+endif()
+
 # Utilities
 target_sources(rpcs3_emu PRIVATE
     ../util/atomic.cpp

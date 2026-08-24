@@ -3,7 +3,6 @@
 #include "numbered_widget_item.h"
 #include "richtext_item_delegate.h"
 #include "qt_utils.h"
-#include "steam_utils.h"
 
 #include "Emu/system_utils.hpp"
 #include "Utilities/File.h"
@@ -202,23 +201,11 @@ pkg_install_dialog::pkg_install_dialog(const QStringList& paths, bool from_boot,
 			? tr("We found multiple packages bundled with the game.\nReorder and/or exclude them if needed, then click \"Install\" to proceed.")
 			: tr("You are about to install multiple packages.\nReorder and/or exclude them if needed, then click \"Install\" to proceed.")
 	);
-	QLabel* label = new QLabel(tr("Would you like to precompile caches and install shortcuts to the installed software?"));
+	QLabel* label = new QLabel(tr("Would you like to precompile caches for the installed software?"));
 
 	QCheckBox* precompile_check = new QCheckBox(tr("Precompile caches"));
 	connect(precompile_check, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState state){ m_precompile_caches = state != Qt::CheckState::Unchecked; });
 	precompile_check->setChecked(true);
-
-	QCheckBox* desk_check = new QCheckBox(tr("Add desktop shortcut(s)"));
-	connect(desk_check, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState state){ m_create_desktop_shortcuts = state != Qt::CheckState::Unchecked; });
-
-#ifdef _WIN32
-	QCheckBox* quick_check = new QCheckBox(tr("Add Start menu shortcut(s)"));
-#elif defined(__APPLE__)
-	QCheckBox* quick_check = new QCheckBox(tr("Add dock shortcut(s)"));
-#else
-	QCheckBox* quick_check = new QCheckBox(tr("Add launcher shortcut(s)"));
-#endif
-	connect(quick_check, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState state){ m_create_app_shortcut = state != Qt::CheckState::Unchecked; });
 
 	QVBoxLayout* vbox = new QVBoxLayout;
 	vbox->addWidget(description);
@@ -226,18 +213,6 @@ pkg_install_dialog::pkg_install_dialog(const QStringList& paths, bool from_boot,
 	vbox->addWidget(m_dir_list);
 	vbox->addWidget(label);
 	vbox->addWidget(precompile_check);
-	vbox->addWidget(desk_check);
-	vbox->addWidget(quick_check);
-
-	if (gui::utils::steam_shortcut::steam_installed())
-	{
-		const bool steam_running = gui::utils::steam_shortcut::is_steam_running();
-		QCheckBox* steam_check = new QCheckBox(steam_running ? tr("Add Steam Shortcut(s) (Steam must be closed)") : tr("Add Steam shortcut(s)"));
-		connect(steam_check, &QCheckBox::checkStateChanged, this, [this](Qt::CheckState state){ m_create_steam_shortcut = state != Qt::CheckState::Unchecked; });
-		steam_check->setEnabled(!steam_running);
-
-		vbox->addWidget(steam_check);
-	}
 
 	vbox->addWidget(installation_info);
 	vbox->addWidget(buttons);

@@ -7,6 +7,8 @@
 #include <QUrl>
 #include <QMimeData>
 
+#include <functional>
+
 #include "update_manager.h"
 #include "settings.h"
 #include "shortcut_handler.h"
@@ -27,6 +29,8 @@ class system_cmd_dialog;
 class gui_pad_thread;
 
 struct gui_game_info;
+
+enum class game_boot_result : u32;
 
 namespace compat
 {
@@ -49,6 +53,7 @@ class main_window : public QMainWindow
 	bool m_requested_show_logs_on_exit = false;
 	int m_other_slider_pos = 0;
 
+	QIcon m_app_icon;
 	QIcon m_icon_play;
 	QIcon m_icon_pause;
 	QIcon m_icon_restart;
@@ -71,9 +76,10 @@ public:
 	~main_window();
 	void show();
 	void Init();
+	QIcon GetAppIcon() const;
 	void OnMissingFw();
-	static bool InstallPackages(main_window* mw, QStringList file_paths = {}, bool from_boot = false, bool from_optical_drive = false);
-	static void InstallPup(main_window* mw, QString file_path = "");
+	static bool InstallPackages(main_window* mw, QStringList file_paths = {}, bool from_boot = false);
+	static void InstallPup(main_window* mw, QString file_path = "", std::function<void()> on_success = {});
 
 Q_SIGNALS:
 	void RequestLanguageChange(const QString& language);
@@ -98,7 +104,8 @@ public Q_SLOTS:
 
 private Q_SLOTS:
 	void OnPlayOrPause();
-	void Boot(const std::string& path, const std::string& title_id = "", bool direct = false, bool refresh_list = false, cfg_mode config_mode = cfg_mode::custom, const std::string& config_path = "");
+	void Boot(const std::string& path, const std::string& title_id = "", bool direct = false, bool refresh_list = false, cfg_mode config_mode = cfg_mode::custom, const std::string& config_path = "", bool is_game_boot = false);
+	void show_game_boot_restriction();
 	void BootElf();
 	void BootTest();
 	void BootGame();
@@ -107,6 +114,7 @@ private Q_SLOTS:
 	void BootSavestate();
 	void BootRsxCapture(std::string path = "");
 	void DecryptSPRXLibraries();
+	void show_boot_error(game_boot_result status);
 
 	void SaveWindowState() const;
 	void SetIconSizeActions(int idx) const;
@@ -135,6 +143,7 @@ private:
 	void CreateConnects();
 	void CreateDockWindows();
 	void EnableMenus(bool enabled) const;
+	bool is_game_boot_from_home_allowed() const;
 	void ShowTitleBars(bool show) const;
 	void PrecompileCachesFromInstalledPackages(const std::map<std::string, QString>& bootable_paths);
 	void ShowOptionalGamePreparations(const QString& title, const QString& message, std::map<std::string, QString> game_path);
@@ -142,8 +151,8 @@ private:
 	void CreateShortCuts(const std::map<std::string, QString>& paths, std::set<gui::utils::shortcut_location> locations);
 
 	static bool InstallFileInExData(const std::string& extension, const QString& path, const std::string& filename);
-	static bool HandlePackageInstallation(main_window* mw, QStringList file_paths, bool from_boot, bool from_optical_drive);
-	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "");
+	static bool HandlePackageInstallation(main_window* mw, QStringList file_paths, bool from_boot);
+	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "", std::function<void()> on_success = {});
 
 	void ExtractPup();
 
@@ -178,8 +187,6 @@ private:
 	QActionGroup* m_icon_size_act_group = nullptr;
 	QActionGroup* m_list_mode_act_group = nullptr;
 	QActionGroup* m_category_visible_act_group = nullptr;
-	QActionGroup* m_manage_game_collection_act_group = nullptr;
-	QActionGroup* m_view_game_collection_act_group = nullptr;
 
 	// Dockable widget frames
 	QMainWindow* m_mw = nullptr;

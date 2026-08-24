@@ -119,6 +119,22 @@ if (NOT ANDROID)
             rpcs3_lib
     )
 
+    # Compile the application translation catalog and place it where the GUI
+    # looks for application-local translations at runtime.
+    qt_add_lrelease(rpcs3
+        TS_FILES rpcs3qt/translations/rpcs3_zh_CN.ts
+        QM_FILES_OUTPUT_VARIABLE rpcs3_translation_qm_files)
+
+    if(APPLE)
+        set(rpcs3_translation_dir "$<TARGET_FILE_DIR:rpcs3>/../translations")
+    else()
+        set(rpcs3_translation_dir "$<TARGET_FILE_DIR:rpcs3>/translations")
+    endif()
+
+    add_custom_command(TARGET rpcs3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${rpcs3_translation_dir}"
+        COMMAND ${CMAKE_COMMAND} -E copy ${rpcs3_translation_qm_files} "${rpcs3_translation_dir}")
+
     if(USE_PRECOMPILED_HEADERS)
         target_precompile_headers(rpcs3 PRIVATE stdafx.h)
     endif()
@@ -167,6 +183,8 @@ if (NOT ANDROID)
             DESTINATION ${CMAKE_INSTALL_DATADIR}/rpcs3)
         install(DIRECTORY ../bin/test
             DESTINATION ${CMAKE_INSTALL_DATADIR}/rpcs3)
+        install(FILES ${rpcs3_translation_qm_files}
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/rpcs3/translations)
     endif()
 endif()
 

@@ -284,6 +284,10 @@ void gui_application::Init()
 	m_gui_settings = std::make_shared<gui_settings>();
 	m_persistent_settings = std::make_shared<persistent_settings>();
 
+	// Treat the initial guide as acknowledged so it never interrupts a launch
+	// initiated by the companion application.
+	m_gui_settings->SetValue(gui::ib_show_welcome, false);
+
 	if (m_gui_settings->GetValue(gui::m_attachCommandLine).toBool())
 	{
 		utils::attach_console(utils::console_stream::std_err, true);
@@ -314,13 +318,24 @@ void gui_application::Init()
 	{
 		m_main_window = new main_window(m_gui_settings, m_emu_settings, m_persistent_settings, m_with_cli_boot, nullptr);
 
-		const auto codes    = GetAvailableLanguageCodes();
-		const auto language = m_gui_settings->GetValue(gui::loc_language).toString();
-		const auto index    = codes.indexOf(language);
+		const QStringList language_codes = GetAvailableLanguageCodes();
+		const QVariant saved_language = m_gui_settings->GetValue(gui::loc_language.key, gui::loc_language.name, QVariant());
+		const QString default_code = QLocale(QLocale::English).bcp47Name();
+		const bool has_manual_language = m_gui_settings->GetValue(gui::loc_language_manual).toBool()
+			// Older versions only persisted non-English choices made from the language menu.
+			|| (saved_language.isValid() && saved_language.toString() != default_code);
+		const QString language_code = has_manual_language && saved_language.isValid() && language_codes.contains(saved_language.toString())
+			? saved_language.toString()
+			: GetSystemLanguageCode(language_codes);
 
-		LoadLanguage(index < 0 ? QLocale(QLocale::English).bcp47Name() : ::at32(codes, index));
+		LoadLanguage(language_code);
 
-		connect(m_main_window, &main_window::RequestLanguageChange, this, &gui_application::LoadLanguage);
+		connect(m_main_window, &main_window::RequestLanguageChange, this, [this](const QString& language)
+		{
+			m_gui_settings->SetValue(gui::loc_language, language);
+			m_gui_settings->SetValue(gui::loc_language_manual, true);
+			LoadLanguage(language);
+		});
 		connect(m_main_window, &main_window::RequestGlobalStylesheetChange, this, &gui_application::OnChangeStyleSheetRequest);
 		connect(m_main_window, &main_window::NotifyEmuSettingsChange, this, [this](){ OnEmuSettingsChange(); });
 		connect(m_main_window, &main_window::NotifyShortcutHandlers, this, &gui_application::OnShortcutChange);
@@ -369,10 +384,10 @@ void gui_application::SwitchTranslator(const QString& language_code)
 	m_qt_translators.clear();
 
 	const QString default_code = QLocale(QLocale::English).bcp47Name();
-	const QString lang_path = QLibraryInfo::path(QLibraryInfo::TranslationsPath) + QStringLiteral("/");
+	const QString qt_lang_path = QLibraryInfo::path(QLibraryInfo::TranslationsPath) + QStringLiteral("/");
 
 	// Load qt translation files
-	const QDir dir(lang_path);
+	const QDir dir(qt_lang_path);
 	if (dir.exists())
 	{
 		QStringList qm_files = dir.entryList(QStringList() << QStringLiteral("qt*_%1.qm").arg(language_code), QDir::Files | QDir::Readable);
@@ -383,7 +398,7 @@ void gui_application::SwitchTranslator(const QString& language_code)
 
 		for (const QString& qm_file : qm_files)
 		{
-			const QString file_path = lang_path + qm_file;
+			const QString file_path = qt_lang_path + qm_file;
 			QTranslator* qt_translator = new QTranslator(this);
 
 			if (qt_translator->load(file_path))
@@ -401,10 +416,10 @@ void gui_application::SwitchTranslator(const QString& language_code)
 	}
 	else
 	{
-		gui_log.error("Qt translation dir '%s' does not exist", lang_path);
+		gui_log.error("Qt translation dir '%s' does not exist", qt_lang_path);
 	}
 
-	const QString file_path = lang_path + QStringLiteral("rpcs3_%1.qm").arg(language_code);
+	const QString file_path = GetApplicationTranslationsPath() + QStringLiteral("/rpcs3_%1.qm").arg(language_code);
 	if (QFileInfo(file_path).isFile())
 	{
 		// load the new translator
@@ -468,39 +483,77 @@ void gui_application::LoadLanguage(const QString& language_code)
 
 QStringList gui_application::GetAvailableLanguageCodes()
 {
-	QStringList language_codes;
+	const QString default_code = QLocale(QLocale::English).bcp47Name();
+	QStringList language_codes{default_code};
+	const QString language_path = GetApplicationTranslationsPath();
+	const QDir dir(language_path);
 
-	const QString language_path = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
-	gui_log.notice("Checking languages in '%s'", language_path);
-
-	if (QFileInfo(language_path).isDir())
+	if (!dir.exists())
 	{
-		const QDir dir(language_path);
-		const QStringList filenames = dir.entryList(QStringList("rpcs3_*.qm"));
-
-		for (const QString& filename : filenames)
-		{
-			QString language_code = filename;                        // "rpcs3_en.qm"
-			language_code.truncate(language_code.lastIndexOf('.'));  // "rpcs3_en"
-			language_code.remove(0, language_code.indexOf('_') + 1); // "en"
-
-			if (language_codes.contains(language_code))
-			{
-				gui_log.error("Found duplicate language '%s' (%s)", language_code, filename);
-			}
-			else
-			{
-				gui_log.notice("Found language '%s' (%s)", language_code, filename);
-				language_codes << language_code;
-			}
-		}
+		gui_log.warning("Application translation directory '%s' does not exist", language_path);
+		return language_codes;
 	}
-	else
+
+	for (const QString& filename : dir.entryList({QStringLiteral("rpcs3_*.qm")}, QDir::Files | QDir::Readable))
 	{
-		gui_log.error("Language dir not found: '%s'", language_path);
+		QString language_code = filename;
+		language_code.truncate(language_code.lastIndexOf('.'));
+		language_code.remove(0, language_code.indexOf('_') + 1);
+
+		if (!language_codes.contains(language_code))
+		{
+			gui_log.notice("Found application language '%s' (%s)", language_code, filename);
+			language_codes << language_code;
+		}
 	}
 
 	return language_codes;
+}
+
+QString gui_application::GetSystemLanguageCode(const QStringList& language_codes)
+{
+	const auto normalize = [](QString code)
+	{
+		return code.toLower().replace('_', '-');
+	};
+
+	const QStringList system_languages = QLocale::system().uiLanguages();
+	for (const QString& system_language : system_languages)
+	{
+		const QString normalized_system_language = normalize(system_language);
+		for (const QString& language_code : language_codes)
+		{
+			if (normalize(language_code) == normalized_system_language)
+			{
+				return language_code;
+			}
+		}
+	}
+
+	const QLocale::Language system_language = QLocale::system().language();
+	for (const QString& language_code : language_codes)
+	{
+		if (QLocale(language_code).language() == system_language)
+		{
+			return language_code;
+		}
+	}
+
+	return QLocale(QLocale::English).bcp47Name();
+}
+
+QString gui_application::GetApplicationTranslationsPath()
+{
+#ifdef _WIN32
+	return QCoreApplication::applicationDirPath() + QStringLiteral("/translations");
+#elif defined(__APPLE__)
+	return QCoreApplication::applicationDirPath() + QStringLiteral("/../translations");
+#elif defined(DATADIR)
+	const QString local_path = QCoreApplication::applicationDirPath() + QStringLiteral("/translations");
+	return QFileInfo(local_path).isDir() ? local_path : QStringLiteral(DATADIR) + QStringLiteral("/translations");
+#else
+	return QCoreApplication::applicationDirPath() + QStringLiteral("/translations");
+#endif
 }
 
 void gui_application::set_language_code(QString language_code)

@@ -32,6 +32,7 @@
 
 /build
 /build-*
+!/build-macos-arm.sh
 /lib
 /tmp
 /ipch
@@ -129,3 +130,7 @@ CMakeUserPresets.json
 
 # claude
 CLAUDE.md
+/.ccache-macos-arm64
+qt-downloader/
+GitHubReleaseMessage.txt
+/.ccache-macos
