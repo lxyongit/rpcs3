@@ -9,55 +9,129 @@ AVVER="${COMM_TAG}-${COMM_COUNT}"
 export LVER="${COMM_TAG}-${COMM_COUNT}-${COMM_HASH}"
 echo "AVVER=$AVVER" >> .ci/ci-vars.env
 
-# Clang depends on LLVM_COMPILER_VER so it needs to be installed here.
-sudo port install "clang-$LLVM_COMPILER_VER"
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+export HOMEBREW_NO_ENV_HINTS=1
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+# Keep direct local invocations aligned with the macOS CI toolchain.
+: "${LLVM_COMPILER_VER:=22}"
+: "${QT_VER:=6.11.2}"
+: "${QT_VER_MAIN:=6}"
+: "${RUN_UNIT_TESTS:=OFF}"
+export LLVM_COMPILER_VER QT_VER QT_VER_MAIN RUN_UNIT_TESTS
+brew install --quiet ccache "llvm@$LLVM_COMPILER_VER"
+brew link -f --overwrite --quiet "llvm@$LLVM_COMPILER_VER"
+brew install --quiet googletest opencv@4 sdl3 vulkan-headers vulkan-loader molten-vk
+brew unlink --quiet ffmpeg fmt qtbase qtsvg qtdeclarative protobuf || true
 
 export CXX=clang++
 export CC=clang
 
+export BREW_PATH;
+BREW_PATH="$(brew --prefix)"
+export BREW_BIN="$BREW_PATH/bin"
+export BREW_SBIN="$BREW_PATH/sbin"
+
 export WORKDIR;
 WORKDIR="$(pwd)"
+: "${CCACHE_DIR:=$WORKDIR/.ccache-macos}"
+: "${BUILD_ARTIFACTSTAGINGDIRECTORY:=$WORKDIR/packages}"
+export CCACHE_DIR
+export BUILD_ARTIFACTSTAGINGDIRECTORY
+
+if [ -z "${CI:-}" ]; then
+  : "${SKIP_RELEASE_HASH:=1}"
+  export SKIP_RELEASE_HASH
+fi
 
 # Setup ccache
 if [ ! -d "$CCACHE_DIR" ]; then
   mkdir -p "$CCACHE_DIR"
 fi
+mkdir -p "$BUILD_ARTIFACTSTAGINGDIRECTORY"
 
-# Get Qt
-if [ ! -d "/tmp/Qt/$QT_VER" ]; then
+# Prefer the installed Homebrew Qt for local builds. The online Qt repository
+# is retained for CI, which needs the exact packaged version.
+QT_HOMEBREW_DIR="$BREW_PATH/opt/qtbase/lib/cmake/Qt$QT_VER_MAIN"
+if [ -z "${CI:-}" ] && [ -f "$QT_HOMEBREW_DIR/Qt${QT_VER_MAIN}Config.cmake" ]; then
+  export Qt6_DIR="$QT_HOMEBREW_DIR"
+  export CMAKE_PREFIX_PATH="$BREW_PATH/opt/qtbase;$BREW_PATH/opt/qtmultimedia;$BREW_PATH/opt/qtsvg;$BREW_PATH/opt/qtdeclarative;$BREW_PATH/opt/qttools"
+  export QT_TRANSLATIONS_DIR="$BREW_PATH/opt/qttranslations/share/qt/translations"
+  export Qt6Multimedia_DIR="$BREW_PATH/opt/qtmultimedia/lib/cmake/Qt6Multimedia"
+  export Qt6MultimediaWidgets_DIR="$BREW_PATH/opt/qtmultimedia/lib/cmake/Qt6MultimediaWidgets"
+  export Qt6Svg_DIR="$BREW_PATH/opt/qtsvg/lib/cmake/Qt6Svg"
+  export Qt6SvgWidgets_DIR="$BREW_PATH/opt/qtsvg/lib/cmake/Qt6SvgWidgets"
+  export Qt6LinguistTools_DIR="$BREW_PATH/opt/qttools/lib/cmake/Qt6LinguistTools"
+  export MACDEPLOYQT_EXECUTABLE="$BREW_PATH/opt/qtbase/bin/macdeployqt"
+  export QT_PLUGIN_DIR="$BREW_PATH/opt/qtbase/share/qt/plugins"
+  export PATH="$BREW_PATH/opt/qtbase/bin:$PATH"
+else
+  # The version directory alone is not a valid cache marker: a failed
+  # download can leave it behind without the CMake package configuration.
+  QT_ROOT="/tmp/Qt/$QT_VER"
+  QT_CONFIG="$QT_ROOT/clang_64/lib/cmake/Qt$QT_VER_MAIN/Qt${QT_VER_MAIN}Config.cmake"
+  if [ ! -f "$QT_CONFIG" ]; then
+  rm -rf "$QT_ROOT"
   mkdir -p "/tmp/Qt"
-  git clone https://github.com/engnr/qt-downloader.git
-  cd qt-downloader
-  git checkout f52efee0f18668c6d6de2dec0234b8c4bc54c597
+  QT_DOWNLOADER_DIR="/tmp/qt-downloader"
+  if [ ! -d "$QT_DOWNLOADER_DIR/.git" ]; then
+    rm -rf "$QT_DOWNLOADER_DIR"
+    git clone https://github.com/engnr/qt-downloader.git "$QT_DOWNLOADER_DIR"
+  fi
+  cd "$QT_DOWNLOADER_DIR"
+  git checkout --force f52efee0f18668c6d6de2dec0234b8c4bc54c597
   sed -i '' "s/'qt{0}_{0}{1}{2}'.format(major, minor, patch)]))/'qt{0}_{0}{1}{2}'.format(major, minor, patch), 'qt{0}_{0}{1}{2}'.format(major, minor, patch)]))/g" qt-downloader
   sed -i '' "s/'{}\/{}\/qt{}_{}\/'/'{0}\/{1}\/qt{2}_{3}\/qt{2}_{3}\/'/g" qt-downloader
   cd "/tmp/Qt"
   pip3 install py7zr requests semantic_version lxml --no-cache --break-system-packages
   mkdir -p "$QT_VER/macos" ; ln -s "macos" "$QT_VER/clang_64"
-  sed -i '' 's/args\.version \/ derive_toolchain_dir(args) \/ //g' "$WORKDIR/qt-downloader/qt-downloader"
-  python3 "$WORKDIR/qt-downloader/qt-downloader" macos desktop "$QT_VER" clang_64 --opensource --addons qtmultimedia qtimageformats -o "$QT_VER/clang_64"
+  sed -i '' 's/args\.version \/ derive_toolchain_dir(args) \/ //g' "$QT_DOWNLOADER_DIR/qt-downloader"
+  python3 "$QT_DOWNLOADER_DIR/qt-downloader" macos desktop "$QT_VER" clang_64 --opensource --addons qtmultimedia qtimageformats -o "$QT_VER/clang_64"
+  fi
+
+  if [ ! -f "$QT_CONFIG" ]; then
+  echo "Qt download did not produce $QT_CONFIG" >&2
+  exit 1
+  fi
+
+  cd "$WORKDIR"
+  rm -rf "qt-downloader/$QT_VER"
+  mkdir -p qt-downloader
+  ditto "/tmp/Qt/$QT_VER" "qt-downloader/$QT_VER"
+
+  export Qt6_DIR="$WORKDIR/qt-downloader/$QT_VER/clang_64/lib/cmake/Qt$QT_VER_MAIN"
+  export QT_PLUGIN_DIR="$WORKDIR/qt-downloader/$QT_VER/clang_64/plugins"
 fi
+export SDL3_DIR="$BREW_PATH/opt/sdl3/lib/cmake/SDL3"
 
-cd "$WORKDIR"
-ditto "/tmp/Qt/$QT_VER" "qt-downloader/$QT_VER"
+export PATH="$BREW_PATH/opt/llvm@$LLVM_COMPILER_VER/bin:$PATH"
+export LDFLAGS="-L$BREW_PATH/opt/llvm@$LLVM_COMPILER_VER/lib/c++ -L$BREW_PATH/opt/llvm@$LLVM_COMPILER_VER/lib/unwind -lunwind"
 
-export Qt6_DIR="$WORKDIR/qt-downloader/$QT_VER/clang_64/lib/cmake/Qt$QT_VER_MAIN"
-export SDL3_DIR="/opt/local/lib/cmake/SDL3"
-export OpenCV_DIR="/opt/local/libexec/opencv4"
-export PATH="/opt/local/libexec/llvm-$LLVM_COMPILER_VER/bin:/$WORKDIR/qt-downloader/$QT_VER/clang_64/bin:/opt/local/bin:/opt/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/X11/bin:/Library/Apple/usr/bin:$PATH"
-export LDFLAGS="-L/opt/local/lib -Wl,-rpath,/opt/local/lib"
-export VULKAN_SDK="/opt/local"
-export LLVM_DIR="/opt/local/libexec/llvm-$LLVM_COMPILER_VER"
+export VULKAN_SDK
+VULKAN_SDK="$BREW_PATH/opt/molten-vk"
+ln -sf "$BREW_PATH/opt/vulkan-loader/lib/libvulkan.dylib" "$VULKAN_SDK/lib/libvulkan.dylib"
 
+export LLVM_DIR
+LLVM_DIR="$BREW_PATH/opt/llvm@$LLVM_COMPILER_VER"
 # Pull all the submodules except some
 # shellcheck disable=SC2046
-git submodule -q update --init --depth=1 --jobs=8 $(awk '/path/ && !/llvm/ && !/opencv/ && !/libsdl-org/ && !/feralinteractive/ && !/curl/ && !/zlib/ { print $3 }' .gitmodules)
+git submodule -q update --init --depth=1 --jobs=8 $(awk '/path/ && !/llvm/ && !/opencv/ && !/SDL/ && !/feralinteractive/ { print $3 }' .gitmodules)
 
-mkdir build && cd build || exit 1
+: "${BUILD_DIR:=build}"
+mkdir -p "$BUILD_DIR" && cd "$BUILD_DIR" || exit 1
+MACDEPLOYQT_CMAKE_ARG="${MACDEPLOYQT_EXECUTABLE:+-DMACDEPLOYQT_EXECUTABLE=$MACDEPLOYQT_EXECUTABLE}"
 # The below should be uncommented once bugs with Qt 6 QListWidgets when using the OS 26 visual style are resolved.
 # sudo xcode-select -switch /Applications/Xcode_26.3.app/Contents/Developer
 
 cmake .. \
+    $MACDEPLOYQT_CMAKE_ARG \
+    -DQt6_DIR="$Qt6_DIR" \
+    -DQt6Multimedia_DIR="${Qt6Multimedia_DIR:-}" \
+    -DQt6MultimediaWidgets_DIR="${Qt6MultimediaWidgets_DIR:-}" \
+    -DQt6Svg_DIR="${Qt6Svg_DIR:-}" \
+    -DQt6SvgWidgets_DIR="${Qt6SvgWidgets_DIR:-}" \
+    -DQt6LinguistTools_DIR="${Qt6LinguistTools_DIR:-}" \
+    -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" \
     -DBUILD_RPCS3_TESTS="${RUN_UNIT_TESTS}" \
     -DRUN_RPCS3_TESTS="${RUN_UNIT_TESTS}" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
@@ -76,7 +150,11 @@ cmake .. \
     -DUSE_SYSTEM_OPENCV=ON \
     -G Ninja
 
-ninja; build_status=$?;
+# The packaging step renames and mutates the app bundle. Never let a later
+# build reuse a partial bundle left by a failed deployment.
+rm -rf bin/rpcs3.app bin/RPCS3.app bin/RPCS3_.app
+
+ninja -j4; build_status=$?;
 
 cd ..
 

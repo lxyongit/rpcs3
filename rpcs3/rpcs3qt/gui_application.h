@@ -86,6 +86,8 @@ private:
 	void SwitchTranslator(const QString& language_code);
 	void LoadLanguage(const QString& language_code);
 	static QStringList GetAvailableLanguageCodes();
+	static QString GetSystemLanguageCode(const QStringList& language_codes);
+	static QString GetApplicationTranslationsPath();
 
 	void create_callbacks() override;
 	void InitializeConnects();

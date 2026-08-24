@@ -954,7 +954,9 @@ int run_rpcs3(int argc, char** argv)
 
 		gui_app->SetShowGui(!s_no_gui);
 		gui_app->SetUseCliStyle(use_cli_style);
-		gui_app->SetWithCliBoot(parser.isSet(arg_installfw) || parser.isSet(arg_installpkg) || !parser.positionalArguments().isEmpty());
+		const bool has_cli_game_boot = (!parser.positionalArguments().isEmpty() || !emu_argv.empty())
+			&& !parser.isSet(arg_installfw) && !parser.isSet(arg_installpkg);
+		gui_app->SetWithCliBoot(has_cli_game_boot);
 		gui_app->SetActiveUser(active_user);
 
 		if (parser.isSet(arg_fullscreen))
@@ -1154,13 +1156,16 @@ int run_rpcs3(int argc, char** argv)
 
 			if (gui_app->m_main_window)
 			{
-				if (parser.isSet(arg_installfw) && parser.isSet(arg_installpkg))
+				if (parser.isSet(arg_installfw))
 				{
-					QMessageBox::warning(gui_app->m_main_window, QObject::tr("Invalid command-line arguments!"), QObject::tr("Cannot perform multiple installations at the same time!"));
-				}
-				else if (parser.isSet(arg_installfw))
-				{
-					main_window::InstallPup(gui_app->m_main_window, parser.value(installfw_option));
+					const QString pkg_path = parser.value(installpkg_option);
+					main_window::InstallPup(gui_app->m_main_window, parser.value(installfw_option), [mw = gui_app->m_main_window, pkg_path]()
+					{
+						if (!pkg_path.isEmpty())
+						{
+							main_window::InstallPackages(mw, {pkg_path});
+						}
+					});
 				}
 				else
 				{
@@ -1176,10 +1181,17 @@ int run_rpcs3(int argc, char** argv)
 		{
 			if (parser.isSet(arg_installfw))
 			{
-				main_window::InstallPup(nullptr, parser.value(installfw_option));
+				const QString pkg_path = parser.value(installpkg_option);
+				main_window::InstallPup(nullptr, parser.value(installfw_option), [pkg_path]()
+				{
+					if (!pkg_path.isEmpty())
+					{
+						main_window::InstallPackages(nullptr, {pkg_path});
+					}
+				});
 			}
 
-			if (parser.isSet(arg_installpkg))
+			if (parser.isSet(arg_installpkg) && !parser.isSet(arg_installfw))
 			{
 				main_window::InstallPackages(nullptr, {parser.value(installpkg_option)});
 			}

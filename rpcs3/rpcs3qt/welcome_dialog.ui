@@ -185,13 +185,6 @@
       </widget>
      </item>
      <item>
-      <widget class="QCheckBox" name="create_desktop_shortcut">
-       <property name="text">
-        <string>Create desktop shortcut</string>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QCheckBox" name="create_applications_menu_shortcut">
        <property name="text">
         <string>Create Start Menu shortcut</string>

@@ -2,7 +2,7 @@ add_library(3rdparty_qt6 INTERFACE)
 
 set(QT_MIN_VER 6.7.0)
 
-find_package(Qt6 ${QT_MIN_VER} CONFIG COMPONENTS Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets)
+find_package(Qt6 ${QT_MIN_VER} CONFIG COMPONENTS Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets LinguistTools)
 if(WIN32)
 	target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
 else()
@@ -46,6 +46,10 @@ else()
 	else()
 		message(FATAL_ERROR "You need to have Qt6 installed, look online for instructions on installing Qt6 on ${CMAKE_SYSTEM}.")
 	endif()
+endif()
+
+if(NOT Qt6LinguistTools_FOUND)
+	message(FATAL_ERROR "CMake was unable to find the Qt6 LinguistTools component required to compile RPCS3 translations!")
 endif()
 
 add_library(3rdparty::qt6 ALIAS 3rdparty_qt6)
