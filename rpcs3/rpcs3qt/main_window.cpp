@@ -367,7 +367,19 @@ void main_window::OnMissingFw()
 
 	connect(mb, &QDialog::accepted, this, [this]()
 	{
-		QTimer::singleShot(1, [this](){ InstallPup(this); }); // singleShot to avoid a Qt bug that causes a deletion of the sender during long slots.
+		QTimer::singleShot(1, [this]()
+		{
+			InstallPup(this, "", [this]()
+			{
+				// Firmware installation on first launch is complete. Exit so the
+				// companion application can perform the next launch cleanly.
+				QTimer::singleShot(0, this, [this]()
+				{
+					gui_log.notice("Firmware installed during first-launch setup; closing RPCS3.");
+					Emu.Quit(true);
+				});
+			});
+		}); // singleShot to avoid a Qt bug that causes a deletion of the sender during long slots.
 	});
 }
 
@@ -426,13 +438,23 @@ void main_window::handle_shortcut(gui::shortcuts::shortcut shortcut_key, const Q
 		if (status == system_state::paused)
 			Emu.Resume();
 		else if (status == system_state::ready)
-			Emu.Run(true);
+		{
+			if (is_game_boot_from_home_allowed())
+				Emu.Run(true);
+			else
+				show_game_boot_restriction();
+		}
 		break;
 	}
 	case gui::shortcuts::shortcut::mw_restart:
 	{
 		if (!Emu.GetBoot().empty())
-			Emu.Restart();
+		{
+			if (is_game_boot_from_home_allowed())
+				Emu.Restart();
+			else
+				show_game_boot_restriction();
+		}
 		break;
 	}
 	case gui::shortcuts::shortcut::mw_stop:
@@ -454,7 +476,12 @@ void main_window::OnPlayOrPause()
 
 	switch (Emu.GetStatus())
 	{
-	case system_state::ready: Emu.Run(true); return;
+	case system_state::ready:
+		if (is_game_boot_from_home_allowed())
+			Emu.Run(true);
+		else
+			show_game_boot_restriction();
+		return;
 	case system_state::paused: Emu.Resume(); return;
 	case system_state::running: Emu.Pause(); return;
 	case system_state::stopped:
@@ -462,10 +489,16 @@ void main_window::OnPlayOrPause()
 		if (m_selected_game)
 		{
 			gui_log.notice("Booting from OnPlayOrPause...");
-			Boot(m_selected_game->info.path, m_selected_game->info.serial);
+			Boot(m_selected_game->info.path, m_selected_game->info.serial, false, false, cfg_mode::custom, "", true);
 		}
 		else if (const std::string path = Emu.GetLastBoot(); !path.empty())
 		{
+			if (!is_game_boot_from_home_allowed())
+			{
+				show_game_boot_restriction();
+				return;
+			}
+
 			if (const auto error = Emu.Load(); error != game_boot_result::no_errors)
 			{
 				gui_log.error("Boot failed: reason: %s, path: %s", error, path);
@@ -549,8 +582,27 @@ void main_window::show_boot_error(game_boot_result status)
 	msg->open();
 }
 
-void main_window::Boot(const std::string& path, const std::string& title_id, bool direct, bool refresh_list, cfg_mode config_mode, const std::string& config_path)
+void main_window::show_game_boot_restriction()
 {
+	QMessageBox* msg = new QMessageBox(this);
+	msg->setWindowTitle(tr("Boot Failed"));
+	msg->setIcon(QMessageBox::Critical);
+	msg->setStandardButtons(QMessageBox::Ok);
+	msg->setText(tr("Please start the game in \"Red-White Emulator\"."));
+	msg->setAttribute(Qt::WA_DeleteOnClose);
+	msg->open();
+}
+
+void main_window::Boot(const std::string& path, const std::string& title_id, bool direct, bool refresh_list, cfg_mode config_mode, const std::string& config_path, bool /*is_game_boot*/)
+{
+	// Command-line boots bypass this UI entry point. Every boot requested from
+	// the home screen must be delegated to the companion application.
+	if (!is_game_boot_from_home_allowed())
+	{
+		show_game_boot_restriction();
+		return;
+	}
+
 	if (Emu.IsBootingRestricted())
 	{
 		return;
@@ -703,6 +755,12 @@ void main_window::BootTest()
 
 void main_window::BootSavestate()
 {
+	if (!is_game_boot_from_home_allowed())
+	{
+		show_game_boot_restriction();
+		return;
+	}
+
 	bool stopped = false;
 
 	if (Emu.IsRunning())
@@ -728,11 +786,17 @@ void main_window::BootSavestate()
 	const std::string path = QFileInfo(file_path).absoluteFilePath().toStdString();
 
 	gui_log.notice("Booting from BootSavestate...");
-	Boot(path, "", true);
+	Boot(path, "", true, false, cfg_mode::custom, "", true);
 }
 
 void main_window::BootGame()
 {
+	if (!is_game_boot_from_home_allowed())
+	{
+		show_game_boot_restriction();
+		return;
+	}
+
 	bool stopped = false;
 
 	if (Emu.IsRunning())
@@ -756,11 +820,17 @@ void main_window::BootGame()
 	m_gui_settings->SetValue(gui::fd_boot_game, QFileInfo(dir_path).path());
 
 	gui_log.notice("Booting from BootGame...");
-	Boot(dir_path.toStdString(), "", false, true);
+	Boot(dir_path.toStdString(), "", false, true, cfg_mode::custom, "", true);
 }
 
 void main_window::BootISO()
 {
+	if (!is_game_boot_from_home_allowed())
+	{
+		show_game_boot_restriction();
+		return;
+	}
+
 	bool stopped = false;
 
 	if (Emu.IsRunning())
@@ -784,7 +854,7 @@ void main_window::BootISO()
 	m_gui_settings->SetValue(gui::fd_boot_game, QFileInfo(path).dir().path());
 
 	gui_log.notice("Booting from BootISO...");
-	Boot(path.toStdString(), "", true, true);
+	Boot(path.toStdString(), "", true, true, cfg_mode::custom, "", true);
 }
 
 void main_window::BootVSH()
@@ -1007,7 +1077,6 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 	}
 
 	std::vector<compat::package_info> packages;
-	std::set<gui::utils::shortcut_location> shortcut_locations;
 	bool precompile_caches = false;
 	bool canceled = false;
 
@@ -1028,14 +1097,6 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 			packages = dlg.get_paths_to_install();
 			precompile_caches = dlg.precompile_caches();
 
-			if (dlg.create_desktop_shortcuts())
-				shortcut_locations.insert(gui::utils::shortcut_location::desktop);
-
-			if (dlg.create_app_shortcut())
-				shortcut_locations.insert(gui::utils::shortcut_location::applications);
-
-			if (dlg.create_steam_shortcut())
-				shortcut_locations.insert(gui::utils::shortcut_location::steam);
 		});
 		dlg.exec();
 	}
@@ -1250,7 +1311,7 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 
 		if (mw && !bootable_paths_installed.empty())
 		{
-			mw->m_game_list_frame->AddRefreshedSlot([mw, shortcut_locations, precompile_caches, paths = std::move(bootable_paths_installed)](std::set<std::string>& claimed_paths) mutable
+			mw->m_game_list_frame->AddRefreshedSlot([mw, precompile_caches, paths = std::move(bootable_paths_installed)](std::set<std::string>& claimed_paths) mutable
 			{
 				// Try to claim operations on ID
 				for (auto it = paths.begin(); it != paths.end();)
@@ -1267,8 +1328,6 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 						it++;
 					}
 				}
-
-				mw->CreateShortCuts(paths, shortcut_locations);
 
 				if (precompile_caches)
 				{
@@ -1397,7 +1456,7 @@ void main_window::ExtractMSELF()
 	}
 }
 
-void main_window::InstallPup(main_window* mw, QString file_path)
+void main_window::InstallPup(main_window* mw, QString file_path, std::function<void()> on_success)
 {
 	if (file_path.isEmpty())
 	{
@@ -1425,14 +1484,14 @@ void main_window::InstallPup(main_window* mw, QString file_path)
 		if (mw)
 		{
 			// Handle the actual installation with a timeout. Otherwise the source explorer instance is not usable during the following file processing.
-			QTimer::singleShot(0, [mw, file_path]()
+			QTimer::singleShot(0, [mw, file_path, on_success = std::move(on_success)]() mutable
 			{
-				HandlePupInstallation(mw, file_path);
+				HandlePupInstallation(mw, file_path, "", std::move(on_success));
 			});
 		}
 		else
 		{
-			HandlePupInstallation(nullptr, file_path);
+			HandlePupInstallation(nullptr, file_path, "", std::move(on_success));
 		}
 	}
 }
@@ -1525,7 +1584,7 @@ void main_window::ExtractTar()
 	}
 }
 
-void main_window::HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path)
+void main_window::HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path, std::function<void()> on_success)
 {
 	const auto critical = [mw](QString str)
 	{
@@ -1842,6 +1901,11 @@ void main_window::HandlePupInstallation(main_window* mw, const QString& file_pat
 			mw->ui->bootVSHAct->setEnabled(fs::is_file(g_cfg_vfs.get_dev_flash() + "/vsh/module/vsh.self"));
 			mw->m_gui_settings->ShowInfoBox(tr("Success!"), tr("Successfully installed PS3 firmware and LLE Modules!"), gui::ib_pup_success, mw);
 			mw->CreateFirmwareCache();
+		}
+
+		if (on_success)
+		{
+			on_success();
 		}
 	}
 }
@@ -2232,10 +2296,23 @@ void main_window::OnEnableDiscInsert(bool enabled) const
 	ui->insertDiscAct->setEnabled(enabled);
 }
 
+bool main_window::is_game_boot_from_home_allowed() const
+{
+	// Game launches must originate from the companion application, never from
+	// RPCS3's home screen.
+	return false;
+}
+
 void main_window::BootRecentAction(const QAction* act, bool is_savestate)
 {
 	if (Emu.IsRunning())
 	{
+		return;
+	}
+
+	if (!is_game_boot_from_home_allowed())
+	{
+		show_game_boot_restriction();
 		return;
 	}
 
@@ -2296,7 +2373,7 @@ void main_window::BootRecentAction(const QAction* act, bool is_savestate)
 	}
 
 	gui_log.notice("Booting from recent games list...");
-	Boot(path, "", true);
+	Boot(path, "", true, false, cfg_mode::custom, "", true);
 }
 
 QAction* main_window::CreateRecentAction(const q_string_pair& entry, u32 sc_idx, bool is_savestate)
@@ -3247,7 +3324,16 @@ void main_window::CreateConnects()
 	{
 		savestate_manager_dialog* manager = new savestate_manager_dialog(m_gui_settings, m_game_list_frame->GetGameInfo());
 		connect(this, &main_window::RequestDialogRepaint, manager, &savestate_manager_dialog::HandleRepaintUiRequest);
-		connect(manager, &savestate_manager_dialog::RequestBoot, this, [this](const std::string& path) { Boot(path, "", true); });
+		connect(manager, &savestate_manager_dialog::RequestBoot, this, [this](const std::string& path)
+		{
+			if (!is_game_boot_from_home_allowed())
+			{
+				show_game_boot_restriction();
+				return;
+			}
+
+			Boot(path, "", true, false, cfg_mode::custom, "", true);
+		});
 		manager->show();
 	});
 
@@ -3661,7 +3747,13 @@ void main_window::CreateConnects()
 		connect(this, &main_window::RequestDialogRepaint, manager, &savestate_manager_dialog::HandleRepaintUiRequest);
 		connect(manager, &savestate_manager_dialog::RequestBoot, this, [this, gameinfo](const std::string& path)
 		{
-			Boot(path, gameinfo->info.serial, false, false, cfg_mode::custom, "");
+			if (!is_game_boot_from_home_allowed())
+			{
+				show_game_boot_restriction();
+				return;
+			}
+
+			Boot(path, gameinfo->info.serial, false, false, cfg_mode::custom, "", true);
 		});
 		manager->show();
 	});
@@ -3870,11 +3962,17 @@ void main_window::CreateDockWindows()
 
 	connect(m_game_list_frame, &game_list_frame::RequestBoot, this, [this](const game_info& game, cfg_mode config_mode, const std::string& config_path, const std::string& savestate)
 	{
+		if (!is_game_boot_from_home_allowed())
+		{
+			show_game_boot_restriction();
+			return;
+		}
+
 		if (!game->info.game_dir.empty())
 		{
 			Emu.SetGameDir(game->info.game_dir);
 		}
-		Boot(savestate.empty() ? game->info.path : savestate, game->info.serial, false, false, config_mode, config_path);
+		Boot(savestate.empty() ? game->info.path : savestate, game->info.serial, false, false, config_mode, config_path, true);
 	});
 
 	connect(m_game_list_frame, &game_list_frame::NotifyEmuSettingsChange, this, &main_window::NotifyEmuSettingsChange);
@@ -4425,6 +4523,12 @@ void main_window::dropEvent(QDropEvent* event)
 	}
 	case drop_type::drop_game: // import valid games to gamelist (games.yaml)
 	{
+		if (!is_game_boot_from_home_allowed())
+		{
+			show_game_boot_restriction();
+			return;
+		}
+
 		if (Emu.IsBootingRestricted())
 		{
 			return;

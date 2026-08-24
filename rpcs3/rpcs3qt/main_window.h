@@ -7,6 +7,8 @@
 #include <QUrl>
 #include <QMimeData>
 
+#include <functional>
+
 #include "update_manager.h"
 #include "settings.h"
 #include "shortcut_handler.h"
@@ -77,7 +79,7 @@ public:
 	QIcon GetAppIcon() const;
 	void OnMissingFw();
 	static bool InstallPackages(main_window* mw, QStringList file_paths = {}, bool from_boot = false);
-	static void InstallPup(main_window* mw, QString file_path = "");
+	static void InstallPup(main_window* mw, QString file_path = "", std::function<void()> on_success = {});
 
 Q_SIGNALS:
 	void RequestLanguageChange(const QString& language);
@@ -102,7 +104,8 @@ public Q_SLOTS:
 
 private Q_SLOTS:
 	void OnPlayOrPause();
-	void Boot(const std::string& path, const std::string& title_id = "", bool direct = false, bool refresh_list = false, cfg_mode config_mode = cfg_mode::custom, const std::string& config_path = "");
+	void Boot(const std::string& path, const std::string& title_id = "", bool direct = false, bool refresh_list = false, cfg_mode config_mode = cfg_mode::custom, const std::string& config_path = "", bool is_game_boot = false);
+	void show_game_boot_restriction();
 	void BootElf();
 	void BootTest();
 	void BootGame();
@@ -140,6 +143,7 @@ private:
 	void CreateConnects();
 	void CreateDockWindows();
 	void EnableMenus(bool enabled) const;
+	bool is_game_boot_from_home_allowed() const;
 	void ShowTitleBars(bool show) const;
 	void PrecompileCachesFromInstalledPackages(const std::map<std::string, QString>& bootable_paths);
 	void ShowOptionalGamePreparations(const QString& title, const QString& message, std::map<std::string, QString> game_path);
@@ -148,7 +152,7 @@ private:
 
 	static bool InstallFileInExData(const std::string& extension, const QString& path, const std::string& filename);
 	static bool HandlePackageInstallation(main_window* mw, QStringList file_paths, bool from_boot);
-	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "");
+	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "", std::function<void()> on_success = {});
 
 	void ExtractPup();
 

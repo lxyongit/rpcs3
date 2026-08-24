@@ -32,6 +32,7 @@
 
 /build
 /build-*
+!/build-macos-arm.sh
 /lib
 /tmp
 /ipch
@@ -126,3 +127,7 @@ CMakeUserPresets.json
 
 .cache/
 .lldbinit
+/.ccache-macos-arm64
+qt-downloader/
+GitHubReleaseMessage.txt
+/.ccache-macos
