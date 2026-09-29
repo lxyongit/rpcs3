@@ -1009,7 +1009,6 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 	}
 
 	std::vector<compat::package_info> packages;
-	std::set<gui::utils::shortcut_location> shortcut_locations;
 	bool precompile_caches = false;
 	bool canceled = false;
 
@@ -1029,15 +1028,6 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 
 			packages = dlg.get_paths_to_install();
 			precompile_caches = dlg.precompile_caches();
-
-			if (dlg.create_desktop_shortcuts())
-				shortcut_locations.insert(gui::utils::shortcut_location::desktop);
-
-			if (dlg.create_app_shortcut())
-				shortcut_locations.insert(gui::utils::shortcut_location::applications);
-
-			if (dlg.create_steam_shortcut())
-				shortcut_locations.insert(gui::utils::shortcut_location::steam);
 		});
 		dlg.exec();
 	}
@@ -1252,7 +1242,7 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 
 		if (mw && !bootable_paths_installed.empty())
 		{
-			mw->m_game_list_frame->AddRefreshedSlot([mw, shortcut_locations, precompile_caches, paths = std::move(bootable_paths_installed)](std::set<std::string>& claimed_paths) mutable
+			mw->m_game_list_frame->AddRefreshedSlot([mw, precompile_caches, paths = std::move(bootable_paths_installed)](std::set<std::string>& claimed_paths) mutable
 			{
 				// Try to claim operations on ID
 				for (auto it = paths.begin(); it != paths.end();)
@@ -1270,7 +1260,7 @@ bool main_window::HandlePackageInstallation(main_window* mw, QStringList file_pa
 					}
 				}
 
-				mw->CreateShortCuts(paths, shortcut_locations);
+				mw->CreateShortCuts(paths, {});
 
 				if (precompile_caches)
 				{
