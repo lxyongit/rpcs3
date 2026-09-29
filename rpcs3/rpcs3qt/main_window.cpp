@@ -1389,7 +1389,7 @@ void main_window::ExtractMSELF()
 	}
 }
 
-void main_window::InstallPup(main_window* mw, QString file_path)
+void main_window::InstallPup(main_window* mw, QString file_path, std::function<void()> on_success)
 {
 	if (file_path.isEmpty())
 	{
@@ -1417,14 +1417,14 @@ void main_window::InstallPup(main_window* mw, QString file_path)
 		if (mw)
 		{
 			// Handle the actual installation with a timeout. Otherwise the source explorer instance is not usable during the following file processing.
-			QTimer::singleShot(0, [mw, file_path]()
+			QTimer::singleShot(0, mw, [mw, file_path, on_success = std::move(on_success)]() mutable
 			{
-				HandlePupInstallation(mw, file_path);
+				HandlePupInstallation(mw, file_path, {}, std::move(on_success));
 			});
 		}
 		else
 		{
-			HandlePupInstallation(nullptr, file_path);
+			HandlePupInstallation(nullptr, file_path, {}, std::move(on_success));
 		}
 	}
 }
@@ -1517,7 +1517,7 @@ void main_window::ExtractTar()
 	}
 }
 
-void main_window::HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path)
+void main_window::HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path, std::function<void()> on_success)
 {
 	const auto critical = [mw](QString str)
 	{
@@ -1834,6 +1834,18 @@ void main_window::HandlePupInstallation(main_window* mw, const QString& file_pat
 			mw->ui->bootVSHAct->setEnabled(fs::is_file(g_cfg_vfs.get_dev_flash() + "/vsh/module/vsh.self"));
 			mw->m_gui_settings->ShowInfoBox(tr("Success!"), tr("Successfully installed PS3 firmware and LLE Modules!"), gui::ib_pup_success, mw);
 			mw->CreateFirmwareCache();
+		}
+
+		if (on_success)
+		{
+			if (mw)
+			{
+				QTimer::singleShot(0, mw, [callback = std::move(on_success)]() { callback(); });
+			}
+			else
+			{
+				on_success();
+			}
 		}
 	}
 }

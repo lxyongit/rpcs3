@@ -14,6 +14,7 @@
 #include "Emu/config_mode.h"
 #include "Emu/System.h"
 
+#include <functional>
 #include <memory>
 
 class log_frame;
@@ -77,7 +78,7 @@ public:
 	QIcon GetAppIcon() const;
 	void OnMissingFw();
 	static bool InstallPackages(main_window* mw, QStringList file_paths = {}, bool from_boot = false, bool from_optical_drive = false);
-	static void InstallPup(main_window* mw, QString file_path = "");
+	static void InstallPup(main_window* mw, QString file_path = "", std::function<void()> on_success = {});
 
 Q_SIGNALS:
 	void RequestLanguageChange(const QString& language);
@@ -148,7 +149,7 @@ private:
 
 	static bool InstallFileInExData(const std::string& extension, const QString& path, const std::string& filename);
 	static bool HandlePackageInstallation(main_window* mw, QStringList file_paths, bool from_boot, bool from_optical_drive);
-	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "");
+	static void HandlePupInstallation(main_window* mw, const QString& file_path, const QString& dir_path = "", std::function<void()> on_success = {});
 
 	void ExtractPup();
 
