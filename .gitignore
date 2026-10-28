@@ -134,3 +134,4 @@ CLAUDE.md
 qt-downloader/
 GitHubReleaseMessage.txt
 /.ccache-macos
+/3rdparty
