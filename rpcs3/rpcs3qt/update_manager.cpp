@@ -66,10 +66,11 @@ void update_manager::check_for_updates(bool automatic, bool check_only, bool aut
 
 	if (automatic)
 	{
-		// Don't check for updates on local builds
-		if (!allow_local_auto_update && rpcs3::is_local_build())
+		// The official update service only tracks official release builds.
+		// Fork and CI builds must not query it automatically on startup.
+		if (!allow_local_auto_update && !rpcs3::is_release_build())
 		{
-			update_log.notice("Skipped automatic update check: this is a local build");
+			update_log.notice("Skipped automatic update check: this is not an official release build");
 			return;
 		}
 #ifdef __linux__
