@@ -7,6 +7,8 @@ on:
   push:
     branches:
       - master # Only trigger push event on 'master' branch
+    tags:
+      - '**' # Build every pushed tag, regardless of its source branch
   pull_request:
   workflow_dispatch:
 
@@ -86,9 +88,9 @@ jobs:
           echo "Removed $(wc -l < code_caches.tsv) code cache(s) after merging a 'Shaders' or 'CI: Disable Build Caches' PR." >> "$GITHUB_STEP_SUMMARY"
 
   Linux_Build:
-    # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     strategy:
       fail-fast: false
       matrix:
@@ -181,9 +183,9 @@ jobs:
           key: ${{ steps.restore-build-ccache.outputs.cache-primary-key }}
 
   Mac_Build:
-    # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     strategy:
       fail-fast: false
       matrix:
@@ -277,9 +279,9 @@ jobs:
           key: ${{ steps.restore-qt-cache.outputs.cache-primary-key }}
 
   Windows_Build:
-    # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     name: RPCS3 Windows
     runs-on: windows-2025-vs2026
     env:
@@ -402,9 +404,9 @@ jobs:
           key: ${{ steps.restore-dependencies-cache.outputs.cache-primary-key }}
 
   Windows_Build_Test:
-    # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     name: RPCS3 Windows Unit Test
     runs-on: windows-2025-vs2026
     env:
@@ -492,9 +494,9 @@ jobs:
         run: build\lib\Release-x64\rpcs3_test.exe
 
   Windows_Build_Clang:
-    # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     strategy:
       fail-fast: false
       matrix:
@@ -602,9 +604,9 @@ jobs:
           if-no-files-found: error
 
   FreeBSD_Build:
-      # Only run push event on master branch of main repo, but run all PRs
+    # Build all tags, all PRs/manual runs, and official master pushes.
     needs: Clean_Code_Caches
-    if: github.event_name != 'push' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
+    if: github.event_name != 'push' || github.ref_type == 'tag' || (github.repository == 'RPCS3/rpcs3' && github.ref_name == 'master')
     name: RPCS3 FreeBSD 
     runs-on: ubuntu-latest
     timeout-minutes: 60
